@@ -1,123 +1,132 @@
 import sys
-from PyQt5.QtWidgets import *
+from PyQt5.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QTableWidgetItem,
+    QMessageBox
+)
 from PyQt5.QtCore import pyqtSlot, Qt
-from PyQt5 import uic 
+from PyQt5 import uic
 import sqlite3
-import os.path 
+import os
 
-#DB파일이 없으면 만들고 있다면 접속한다. 
-if os.path.exists("ProductList.db"):
-    con = sqlite3.connect("ProductList.db")
-    cur = con.cursor()
-else: 
-    con = sqlite3.connect("ProductList.db")
-    cur = con.cursor()
-    cur.execute(
-        "create table Products (id integer primary key autoincrement, Name text, Price integer);")
+# Initialize database
+DB_FILE = "ProductList.db"
+if not os.path.exists(DB_FILE):
+    with sqlite3.connect(DB_FILE) as con:
+        cur = con.cursor()
+        cur.execute(
+            "CREATE TABLE Products (id INTEGER PRIMARY KEY AUTOINCREMENT, Name TEXT, Price INTEGER);"
+        )
 
-#디자인 파일을 로딩
-form_class = uic.loadUiType("ProductList.ui")[0]
+# Load UI file
+form_class = uic.loadUiType("Chap10_ProductList.ui")[0]
+
 
 class DemoForm(QMainWindow, form_class):
     def __init__(self):
         super().__init__()
         self.setupUi(self)
-        
-        #초기값 셋팅 
-        self.id = 0 
-        self.name = ""
-        self.price = 0 
 
-        #QTableWidget의 컬럼폭 셋팅하기 
+        # Initial values
+        self.id = 0
+        self.name = ""
+        self.price = 0
+
+        # Setup TableWidget
         self.tableWidget.setColumnWidth(0, 100)
         self.tableWidget.setColumnWidth(1, 200)
         self.tableWidget.setColumnWidth(2, 100)
-        #QTableWidget의 헤더 셋팅하기
-        self.tableWidget.setHorizontalHeaderLabels(["제품ID","제품명", "가격"])
-        #QTableWidget의 컬럼 정렬하기 
-        #self.tableWidget.horizontalHeaderItem(0).setTextAlignment(Qt.AlignRight)
-        #self.tableWidget.horizontalHeaderItem(2).setTextAlignment(Qt.AlignRight)
-        #탭키로 네비게이션 금지 
+        self.tableWidget.setHorizontalHeaderLabels(["제품ID", "제품명", "가격"])
+        self.tableWidget.setSortingEnabled(True)  # Allow column sorting
         self.tableWidget.setTabKeyNavigation(False)
-        #엔터키를 클릭하면 다음 컨트롤로 이동하는 경우 
-        self.prodID.returnPressed.connect(lambda: self.focusNextChild())
-        self.prodName.returnPressed.connect(lambda: self.focusNextChild())
-        self.prodPrice.returnPressed.connect(lambda: self.focusNextChild())
-        #더블클릭 시그널 처리
+
+        # Connect signals
+        self.prodID.returnPressed.connect(self.focusNextChild)
+        self.prodName.returnPressed.connect(self.focusNextChild)
+        self.prodPrice.returnPressed.connect(self.focusNextChild)
         self.tableWidget.doubleClicked.connect(self.doubleClick)
 
     def addProduct(self):
-        #입력 파라메터 처리 
-        self.name = self.prodName.text()
-        self.price = self.prodPrice.text()
-        cur.execute("insert into Products (Name, Price) values(?,?);", 
-            (self.name, self.price))
-        #리프레시
-        self.getProduct() 
-        #입력,수정,삭제 작업후에는 커밋을 한다. 
-        con.commit() 
+        try:
+            self.name = self.prodName.text().strip()
+            self.price = self.prodPrice.text().strip()
+
+            if not self.name or not self.price.isdigit():
+                self.showErrorMessage("Invalid input", "Please enter a valid name and price.")
+                return
+
+            with sqlite3.connect(DB_FILE) as con:
+                cur = con.cursor()
+                cur.execute("INSERT INTO Products (Name, Price) VALUES (?, ?);", (self.name, int(self.price)))
+            self.getProduct()
+        except Exception as e:
+            self.showErrorMessage("Database Error", str(e))
 
     def updateProduct(self):
-        #업데이트 작업시 파라메터 처리 
-        self.id  = self.prodID.text()
-        self.name = self.prodName.text()
-        self.price = self.prodPrice.text()
-        cur.execute("update Products set name=?, price=? where id=?;", 
-            (self.name, self.price, self.id))
-        #리프레시
-        self.getProduct() 
-        #입력,수정,삭제 작업후에는 커밋을 한다. 
-        con.commit()  
+        try:
+            self.id = self.prodID.text().strip()
+            self.name = self.prodName.text().strip()
+            self.price = self.prodPrice.text().strip()
+
+            if not self.id.isdigit() or not self.name or not self.price.isdigit():
+                self.showErrorMessage("Invalid input", "Please enter valid ID, name, and price.")
+                return
+
+            with sqlite3.connect(DB_FILE) as con:
+                cur = con.cursor()
+                cur.execute("UPDATE Products SET Name = ?, Price = ? WHERE id = ?;", (self.name, int(self.price), int(self.id)))
+            self.getProduct()
+        except Exception as e:
+            self.showErrorMessage("Database Error", str(e))
 
     def removeProduct(self):
-        #삭제 파라메터 처리 
-        self.id  = self.prodID.text() 
-        strSQL = "delete from Products where id=" + str(self.id)
-        cur.execute(strSQL)
-        #리프레시
-        self.getProduct() 
-        #입력,수정,삭제 작업후에는 커밋을 한다. 
-        con.commit()  
+        try:
+            self.id = self.prodID.text().strip()
+
+            if not self.id.isdigit():
+                self.showErrorMessage("Invalid input", "Please enter a valid ID.")
+                return
+
+            with sqlite3.connect(DB_FILE) as con:
+                cur = con.cursor()
+                cur.execute("DELETE FROM Products WHERE id = ?;", (int(self.id),))
+            self.getProduct()
+        except Exception as e:
+            self.showErrorMessage("Database Error", str(e))
 
     def getProduct(self):
-        #검색 결과를 보여주기전에 기존 컨텐트를 삭제(헤더는 제외)
-        self.tableWidget.clearContents()
+        try:
+            self.tableWidget.clearContents()
+            with sqlite3.connect(DB_FILE) as con:
+                cur = con.cursor()
+                cur.execute("SELECT * FROM Products;")
+                rows = cur.fetchall()
 
-        cur.execute("select * from Products;") 
-        #행숫자 카운트 
-        row = 0 
-        for item in cur: 
-            int_as_strID = "{:10}".format(item[0])
-            int_as_strPrice = "{:10}".format(item[2])
-            
-            #각 열을 Item으로 생성해서 숫자를 오른쪽으로 정렬해서 출력한다. 
-            itemID = QTableWidgetItem(int_as_strID) 
-            itemID.setTextAlignment(Qt.AlignRight) 
-            self.tableWidget.setItem(row, 0, itemID)
-            
-            #제품명은 그대로 출력한다. 
-            self.tableWidget.setItem(row, 1, QTableWidgetItem(item[1]))
-            
-            #각 열을 Item으로 생성해서 숫자를 오른쪽으로 정렬해서 출력한다. 
-            itemPrice = QTableWidgetItem(int_as_strPrice) 
-            itemPrice.setTextAlignment(Qt.AlignRight) 
-            self.tableWidget.setItem(row, 2, itemPrice)
-            
-            row += 1
-            print("row: ", row)  
+            self.tableWidget.setRowCount(len(rows))
+            for row, data in enumerate(rows):
+                self.tableWidget.setItem(row, 0, QTableWidgetItem(str(data[0])))
+                self.tableWidget.setItem(row, 1, QTableWidgetItem(data[1]))
+                itemPrice = QTableWidgetItem(str(data[2]))
+                itemPrice.setTextAlignment(Qt.AlignRight)
+                self.tableWidget.setItem(row, 2, itemPrice)
+        except Exception as e:
+            self.showErrorMessage("Database Error", str(e))
 
     def doubleClick(self):
-        self.prodID.setText(self.tableWidget.item(self.tableWidget.currentRow(), 0).text())
-        self.prodName.setText(self.tableWidget.item(self.tableWidget.currentRow(), 1).text())
-        self.prodPrice.setText(self.tableWidget.item(self.tableWidget.currentRow(), 2).text())
+        try:
+            self.prodID.setText(self.tableWidget.item(self.tableWidget.currentRow(), 0).text())
+            self.prodName.setText(self.tableWidget.item(self.tableWidget.currentRow(), 1).text())
+            self.prodPrice.setText(self.tableWidget.item(self.tableWidget.currentRow(), 2).text())
+        except Exception as e:
+            self.showErrorMessage("Error", str(e))
+
+    def showErrorMessage(self, title, message):
+        QMessageBox.critical(self, title, message)
 
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     demoForm = DemoForm()
     demoForm.show()
-    app.exec_()
-
-
-
-
+    sys.exit(app.exec_())
